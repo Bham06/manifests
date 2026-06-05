@@ -60,18 +60,18 @@ All components are deployable with `kustomize`. In addition, experimental Helm c
 
 This repository periodically synchronizes all official Kubeflow components from the respective upstream repositories. The following matrix shows the git version included for each component along with the rough resource requirements for each Kubeflow component, calculated as the maximum of actual usage and configured requests for CPU/memory as well as storage requirements from PVCs:
 
-| Component | Local Manifests Path | Upstream Revision | CPU (millicores) | Memory (Mi) |  PVC Storage (GB) |
+| Component | Local Manifests Path | Upstream Revision | CPU (millicores) | Memory (Mi) | PVC Storage (GB) |
 | - | - | - | - | - | - |
 | Training Operator | applications/training-operator/upstream | [v1.9.2](https://github.com/kubeflow/training-operator/tree/v1.9.2/manifests) | 3m | 25Mi | 0GB |
 | Trainer | applications/trainer/upstream | [v2.2.0](https://github.com/kubeflow/trainer/tree/v2.2.0/manifests) | 8m | 143Mi | 0GB |
 | Kubeflow Notebooks | applications/notebooks-v1/upstream/ | [v1.11.0](https://github.com/kubeflow/notebooks/tree/v1.11.0/) | 43m | 806Mi | 0GB |
 | Kubeflow Dashboard | applications/dashboard/upstream/ | [v2.0.0](https://github.com/kubeflow/dashboard/tree/v2.0.0/) | 10m | 302Mi | 0GB |
 | Katib | applications/katib/upstream | [v0.19.0](https://github.com/kubeflow/katib/tree/v0.19.0/manifests/v1beta1) | 13m | 476Mi | 10GB |
-| KServe Models Web Application | applications/kserve/models-web-app | [v0.18.0](https://github.com/kserve/models-web-app/tree/v0.18.0/manifests/kustomize) | 6m | 259Mi  | 0GB |
+| KServe Models Web Application | applications/kserve/models-web-app | [v0.18.0](https://github.com/kserve/models-web-app/tree/v0.18.0/manifests/kustomize) | 6m | 259Mi | 0GB |
 | KServe | applications/kserve/kserve | [v0.18.0](https://github.com/kserve/kserve/tree/v0.18.0) | 600m | 1200Mi | 0GB |
 | Kubeflow Pipelines | applications/pipeline/upstream | [2.16.1](https://github.com/kubeflow/pipelines/tree/2.16.1/manifests/kustomize) | 970m | 3552Mi | 35GB |
 | Kubeflow Hub | applications/hub/upstream | [v0.3.9](https://github.com/kubeflow/hub/tree/v0.3.9/manifests/kustomize) | 510m | 2112Mi | 20GB |
-| Spark Operator	|	applications/spark/spark-operator	|	[2.5.0](https://github.com/kubeflow/spark-operator/tree/v2.5.0) | 9m | 41Mi | 0GB |
+| Spark Operator | applications/spark/spark-operator | [2.5.0](https://github.com/kubeflow/spark-operator/tree/v2.5.0) | 9m | 41Mi | 0GB |
 | Istio | common/istio | [1.30.1](https://github.com/istio/istio/releases/tag/1.30.1) | 750m | 2364Mi | 0GB |
 | Knative | common/knative/knative-serving <br /> common/knative/knative-eventing | [v1.22.0](https://github.com/knative/serving/releases/tag/knative-v1.22.0) <br /> [v1.22.0](https://github.com/knative/eventing/releases/tag/knative-v1.22.0) | 1450m | 1038Mi | 0GB |
 | Cert Manager | common/cert-manager | [1.20.2](https://github.com/cert-manager/cert-manager/releases/tag/v1.20.2) | 3m | 128Mi | 0GB |
@@ -587,6 +587,53 @@ The following manual steps are required when upgrading from `release-26.03` to t
    ```sh
    kubectl delete clusterrolebinding llmisvc-manager-rolebinding --ignore-not-found
    ```
+
+3. **Kubeflow Dashboard 2.0.0** ([#3469](https://github.com/kubeflow/manifests/issues/3469)): The Central Dashboard, Profile Controller + KFAM, and PodDefaults webhook moved to [`kubeflow/dashboard`](https://github.com/kubeflow/dashboard/releases/tag/v2.0.0) and must be cleaned up first before the new manifests can be applied. Delete the old `26.03` resources once before `kubectl apply`. Do NOT delete any `CustomResourceDefinition` or `Namespace`, so that existing `Profile` objects and therefore their namespaces survive:
+   ```sh
+   # Admission webhook (PodDefaults)
+   kubectl delete -n kubeflow --ignore-not-found \
+     serviceaccount/admission-webhook-service-account \
+     service/admission-webhook-service \
+     deployment/admission-webhook-deployment \
+     certificate.cert-manager.io/admission-webhook-cert \
+     issuer.cert-manager.io/admission-webhook-selfsigned-issuer
+   kubectl delete --ignore-not-found \
+     clusterrole/admission-webhook-cluster-role \
+     clusterrole/admission-webhook-kubeflow-poddefaults-admin \
+     clusterrole/admission-webhook-kubeflow-poddefaults-edit \
+     clusterrole/admission-webhook-kubeflow-poddefaults-view \
+     clusterrolebinding/admission-webhook-cluster-role-binding \
+     mutatingwebhookconfiguration/admission-webhook-mutating-webhook-configuration
+
+   # Central Dashboard
+   kubectl delete -n kubeflow --ignore-not-found \
+     serviceaccount/centraldashboard \
+     role.rbac.authorization.k8s.io/centraldashboard \
+     rolebinding.rbac.authorization.k8s.io/centraldashboard \
+     configmap/centraldashboard-config \
+     configmap/centraldashboard-parameters \
+     service/centraldashboard \
+     deployment/centraldashboard \
+     virtualservice.networking.istio.io/centraldashboard \
+     authorizationpolicy.security.istio.io/central-dashboard
+   kubectl delete --ignore-not-found \
+     clusterrole/centraldashboard \
+     clusterrolebinding/centraldashboard
+
+   # Profile Controller + KFAM (keep the Profiles CRD and all Profile objects)
+   kubectl delete -n kubeflow --ignore-not-found \
+     serviceaccount/profiles-controller-service-account \
+     role.rbac.authorization.k8s.io/profiles-leader-election-role \
+     rolebinding.rbac.authorization.k8s.io/profiles-leader-election-rolebinding \
+     service/profiles-kfam \
+     deployment/profiles-deployment \
+     virtualservice.networking.istio.io/profiles-kfam \
+     authorizationpolicy.security.istio.io/profiles-kfam
+   kubectl delete --ignore-not-found \
+     clusterrolebinding/profiles-cluster-rolebinding
+   ```
+   The hashed `ConfigMap` resources (`namespace-labels-data-*`, `profiles-config-*`) are recreated under new hashes by the new manifests and can be left untouched.
+   > **WARNING:** Never delete the `Profiles` CRD; it would delete every profile namespace.
 
 ## Release Process
 
